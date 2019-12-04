@@ -1,7 +1,7 @@
 class PriceRangesByZone {
     constructor(rec) {
-        this.zoneName = 
-        this. priceRange = []
+        this.zoneName = rec.zoneName;
+        this. priceRange = rec.priceRange;
     }
 }
 

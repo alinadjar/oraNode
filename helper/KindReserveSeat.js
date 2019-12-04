@@ -16,5 +16,5 @@ class Kind_SeatReserveClass {
 }
 
 
-module.exports = Kind_SeatReserveClass;
-module.exports = Kind_SeatReserve;
+module.exports.Kind_SeatReserveClass = Kind_SeatReserveClass;
+module.exports.Kind_SeatReserve = Kind_SeatReserve;

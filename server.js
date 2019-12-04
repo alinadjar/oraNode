@@ -1,3 +1,6 @@
+const _ = require('lodash');
+const { getSeatClass } = require('./models/Kind_Seatreserve');
+const Kind_SeatReserve = require('./models/Kind_Seatreserve');
 const sworm = require('sworm');
 const express = require('express');
 const app = express();
@@ -6,18 +9,26 @@ const PORT = process.env.PORT || 5000;
 
 
 const oracledb = require('oracledb');
-const ConnectionString = {
+
+
+const dbConfig = {
     user: "RSVP_USER",
     password: "123456",
     connectString: '192.168.87.5:1521/tabarokora'
 };
 
 
+
 const occModel = require('./models/Occasion_model');
 const V_OCCASION_TIME = require('./models/V_OCCASION_TIME');
+const PriceRangesByZone = require('./models/PriceRangesByZone');
+const SeatDetail = require('./models/SeatDetail');
+const OccasionSeat_ViewModel = require('./models/OccasionSeat_ViewModel');
+
+
 
 app.get('/api/Main/GetAllActiveOccasions', (req, res) => {
-    oracledb.getConnection(ConnectionString,
+    oracledb.getConnection(dbConfig,
         function (err, connection) {
             if (err) {
                 res.set('Content-Type', 'application/json');
@@ -58,7 +69,7 @@ app.get('/api/Main/GetAllActiveOccasions', (req, res) => {
 
 
 app.get('/api/Main/GetOccasionInfo/:occID', (req, res) => {
-    oracledb.getConnection(ConnectionString)
+    oracledb.getConnection(dbConfig)
         .then(connection => {
             connection.execute('select * from V_OCCASION_TIME where OCASION_TIME = ' + req.params.occID)
                 .then(result => {
@@ -84,81 +95,104 @@ app.get('/api/Main/GetOccasionInfo/:occID', (req, res) => {
 
 
 
-app.get('/api/Main/GetSeats4OccasionTimeID/:OccasionTimeID', (req, res) => {
+app.get('/api/Main/GetSeats4OccasionTimeID/:OccasionTimeID', async (req, res) => {
 
-    let arr = [];
-    let query = `BEGIN
-                    -- Call the procedure
-                    sp_show_occasion_seat(occasion_time_id => :p1
-                    , result_ => :p2  );                    
-                END;`;
+    let connection;
+    const occTimeID = req.params.OccasionTimeID;
 
+    try {
 
-    let query2 = `BEGIN
-                    SP_SHOW_OCCASION_SEAT(:p1, :p2);                    
-                  END;`;
+        connection = await oracledb.getConnection(dbConfig);
 
+        const result = await connection.execute(
+            `BEGIN SP_SHOW_OCCASION_SEAT(:id, :cursor); END;`,
+            {
+                id: 1,
+                cursor: { type: oracledb.CURSOR, dir: oracledb.BIND_OUT }
+            });
 
-
-
-
-
-
-    //console.log(query2);
-    oracledb.getConnection(ConnectionString)
-        .then(connection => {
-            connection.execute("BEGIN SP_SHOW_OCCASION_SEAT(:p1, :p2); END;",
-                {
-                    p1: { val: 1, type: oracledb.NUMBER, dir: oracledb.BIND_IN },
-                    p2: { type: oracledb.CURSOR, dir: oracledb.BIND_OUT }
-                }
-                , { resultSet: true }
-            ).then(result => {
-                // let output = [];
-                // result.rows.map(rec => {
-                //     output.push(JSON.stringify(rec, null, 2));
-                // });
-                // res.send(JSON.stringify(output));
-
-                console.log(result);
-                const resultSet = result.outBinds.cursor;
-                console.log(resultSet);
-
-                // const numRows = 10;  // number of rows to return from each call to getRows()
+        console.log(result);
+        console.log("Cursor metadata:");
+        console.log(result.outBinds.cursor.metaData);
 
 
-                let rows;
-                do {
-                    resultSet.getRows(numRows) // get numRows rows at a time
-                        .then(rows => {
-                            if (rows.length > 0) {
-                                console.log("getRows(): Got " + rows.length + " rows");
-                                console.log(rows);
-                            }
-                        })
+        const numRows = 10;  // number of rows to return from each call to getRows()
 
-                } while (rows.length === numRows);
+        let output = [];
+        const resultSet = result.outBinds.cursor;
+        let rows, ListSeatDetails = [], ListPriceRange = [];
+        do {
+            rows = await resultSet.getRows(numRows); // get numRows rows at a time
+            if (rows.length > 0) {
+                //console.log("getRows(): Got " + rows.length + " rows");
+                //console.log(rows);
+                rows.forEach(row => {
+                    let record = {
+                        OCCASION_SEAT_ID: parseInt(row[0]),
+                        OCCASION_TIME_ID: parseInt(occTimeID),
+                        SALON_NAME: _.toString(row[2]),
+                        ZONE_NAME: _.toString(row[4]),
+                        RADIF_SHO: parseInt(row[5]),
+                        SEAT_SHO: parseInt(row[6]),
+                        NERKH: parseInt(row[7]),
+                        SEAT_ACTIVE_NAME: _.toString(row[9]),
+                        SEAT_STATUS_NAME: _.toString(row[8]) === '0' ? _.toString(row[11]) : "غير قابل خريد",
+                        SEAT_STATUS_CODE: _.toString(row[8]) === '0' ? _.toString(row[11]) : Kind_SeatReserve.NonPurchasable,
+                        SEAT_STATUS_CLASS: getSeatClass(this.SEAT_STATUS_CODE)
+                    };
+
+                    ListSeatDetails.push(new SeatDetail(record));
 
 
-                //console.log(resultSet);
-                //console.log(result.outBinds.cursor.metaData);
-                //console.log(result.outBinds);
-                //console.log(result.outBinds.cursor);
-                //resultSet.getRows(numRows).then(rows => console.log(rows));
-                //res.send(resultSet);
-                res.send(result);
-                //res.send(result.outBinds.result_);
-            })
-                .catch((err) => {
-                    res.set('Content-Type', 'application/json');
-                    res.status(500).send(JSON.stringify({
-                        status: 500,
-                        message: "error fetching data from DB",
-                        detailedMessage: err.message
-                    }));
+
                 });
-        })
-        .catch((err) => { console.log(err); res.status(500).send('Error Connecting to DB'); });
+            }
+        } while (rows.length === numRows);
+
+
+        const groupedByZone = _.groupBy(ListSeatDetails, 'ZONE_NAME');
+        console.log('---------------------------------- groupedByZone:');
+        //console.log(groupedByZone);
+
+        const uniqZoneNames = _.uniqBy(_.map(ListSeatDetails, i => i.ZONE_NAME));
+        console.log('UNIQUE Zone Names ===> '+uniqZoneNames);
+
+        console.log(uniqZoneNames[0]+ ' has '+ groupedByZone[uniqZoneNames[0]].length+'records');
+
+        //console.log('---------------------------- price Range:');
+        //console.log(_.uniqBy(_.map(groupedByZone[uniqZoneNames[0]], j => j.NERKH)));
+        uniqZoneNames.forEach(ZONE_NAME => {
+            ListPriceRange.push(new PriceRangesByZone({
+                zoneName: ZONE_NAME,
+                priceRange: _.uniqBy(_.map(groupedByZone[ZONE_NAME], j => j.NERKH))
+            }));
+        });
+
+        output.push(new OccasionSeat_ViewModel(ListSeatDetails, ListPriceRange));
+
+        // always close the ResultSet
+        await resultSet.close();
+        res.send(output);
+
+    } catch (err) {
+
+        res.set('Content-Type', 'application/json');
+        res.status(500).send(JSON.stringify({
+            status: 500,
+            message: "error fetching data from DB",
+            detailedMessage: err.message
+
+        }));
+    } finally {
+        if (connection) {
+            try {
+                await connection.close();
+            } catch (err) {
+                console.error(err);
+                res.status(500).send(err);
+            }
+        }
+    }
 });
 
 
@@ -168,7 +202,7 @@ app.get('/api/Main/GetSeats4OccasionTimeID/:OccasionTimeID', (req, res) => {
 //     const querySQL = `BEGIN SP_SHOW_OCCASION( ocasion_id => :ocasion_id, result_ => :result_ ); END;`;
 
 
-//     oracledb.getConnection(ConnectionString)
+//     oracledb.getConnection(dbConfig)
 //         .then(async (connection) => {
 //                 try {
 //                     let result = await connection.execute(querySQL, {
