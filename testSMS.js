@@ -51,25 +51,44 @@
 
 
 
-var soap = require("soap");
-var url = 'http://sms.magfa.com/services/urn:SOAPSmsQueue?wsdl';
+// var soap = require("soap");
+// var url = 'http://sms.magfa.com/services/urn:SOAPSmsQueue?wsdl';
 
-reqURL = soap.createClient(url, function(err, client){
-    if(err) {
-        console.log(err);
-        return;
-    }
+// reqURL = soap.createClient(url, function(err, client){
+//     if(err) {
+//         console.log(err);
+//         return;
+//     }
 
-    console.log('OK until here----------------------------');
-    console.log(client);
+//     console.log('OK until here----------------------------');
+//     console.log(client);
 
-    //console.log(client.lastMessage);
+//     //console.log(client.lastMessage);
 
-    // client.StockQuote.StockQuoteSoap.GetQuote({symbol:'NKE'}, function(err, response){
-    //         if(err) {
-    //             console.log(err);
-    //             return;
-    //         }
-    //         console.log(response);
-    // });
-});
+//     // client.StockQuote.StockQuoteSoap.GetQuote({symbol:'NKE'}, function(err, response){
+//     //         if(err) {
+//     //             console.log(err);
+//     //             return;
+//     //         }
+//     //         console.log(response);
+//     // });
+// });
+
+
+
+const axios = require('axios');
+const config = require('config');
+
+console.log(config.get('smsUsername'));
+
+axios.post('http://sms.3300.ir/api/wsSend.ashx', {
+	"username": config.get('smsUsername'),
+	"password": config.get('smsPassword'),
+	"mobile": "09156187830",
+	"message":"This is a test via NodeJs!",
+	"line": config.get('lineNumber'),
+	"type":0,
+	"template":0
+})
+    .then(response => console.log(response))
+    .catch(err => console.log(err));
