@@ -79,14 +79,14 @@
 const axios = require('axios');
 const config = require('config');
 
-console.log(config.get('smsUsername'));
+console.log(config.get('sms.smsUsername'));
 
 axios.post('http://sms.3300.ir/api/wsSend.ashx', {
-	"username": config.get('smsUsername'),
-	"password": config.get('smsPassword'),
+	"username": config.get('sms.smsUsername'),
+	"password": config.get('sms.smsPassword'),
 	"mobile": "09156187830",
 	"message":"This is a test via NodeJs!",
-	"line": config.get('lineNumber'),
+	"line": config.get('sms.lineNumber'),
 	"type":0,
 	"template":0
 })

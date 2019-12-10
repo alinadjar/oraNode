@@ -1,4 +1,5 @@
 const _ = require('lodash');
+const config = require('config');
 const uuidv1 = require('uuid/v1');
 const bodyParser = require('body-parser');
 const moment = require('jalali-moment');
@@ -9,10 +10,13 @@ const Reserve_Header_Info = require('./models/Reserve_Header_Info');
 const Reserve_Detail_Info = require('./models/Reserve_Detail_Info');
 const ReserveDto = require('./models/ReserveDto');
 const SeatState_Dto = require('./models/SeatState_Dto');
+const errorMiddleware = require('./middleware/errorMiddleware');
+const oracledb = require('oracledb');
+//oracledb.autoCommit = true;
 const sworm = require('sworm');
 const express = require('express');
 const app = express();
-const PORT = process.env.PORT || 5000;
+
 
 
 
@@ -25,15 +29,17 @@ app.use(bodyParser.json())
 
 
 
-const oracledb = require('oracledb');
-//oracledb.autoCommit = true;
+
+
 
 
 const dbConfig = {
-    user: "RSVP_USER",
-    password: "123456",
-    connectString: '192.168.87.5:1521/tabarokora'
+    user: config.get('connectionStrings.oracle.user'),
+    password: config.get('connectionStrings.oracle.password'),
+    connectString: config.get('connectionStrings.oracle.db')
 };
+
+
 
 
 
@@ -49,25 +55,15 @@ app.get('/api/Main/GetAllActiveOccasions', (req, res) => {
     oracledb.getConnection(dbConfig,
         function (err, connection) {
             if (err) {
-                res.set('Content-Type', 'application/json');
-                res.status(500).send(JSON.stringify({
-                    status: 500,
-                    message: "error connrcting to DB",
-                    detailedMessage: err.message
-                }));
+                next(err);
             }
 
             connection.execute("select * from OCCASION ", {}, { outFormat: oracledb.OBJECT }, (err, result) => {
                 if (err) {
-                    res.set('Content-Type', 'application/json');
-                    res.status(500).send(JSON.stringify({
-                        status: 500,
-                        message: "error connrcting to DB",
-                        detailedMessage: err.message
-                    }));
+                    next(err);
                 }
 
-                else {
+                else {                    
                     res.set('Content-Type', 'application/json').status(200);
                     let output = [];
                     console.log(result);
@@ -99,12 +95,7 @@ app.get('/api/Main/GetOccasionInfo/:occID', (req, res) => {
                     res.send(JSON.stringify(output));
                 })
                 .catch((err) => {
-                    res.set('Content-Type', 'application/json');
-                    res.status(500).send(JSON.stringify({
-                        status: 500,
-                        message: "error fetching data from DB",
-                        detailedMessage: err.message
-                    }));
+                    next(err);
                 });
         })
         .catch((err) => { console.log(err); res.status(500).send('Error Connecting to DB'); });
@@ -113,13 +104,13 @@ app.get('/api/Main/GetOccasionInfo/:occID', (req, res) => {
 
 
 
-app.get('/api/Main/GetSeats4OccasionTimeID/:OccasionTimeID', async (req, res) => {
+app.get('/api/Main/GetSeats4OccasionTimeID/:OccasionTimeID', async (req, res, next) => {
 
     let connection;
     const occTimeID = req.params.OccasionTimeID;
 
     try {
-
+        //throw new Error('Heyyyyy.....');
         connection = await oracledb.getConnection(dbConfig);
 
         const result = await connection.execute(
@@ -194,15 +185,8 @@ app.get('/api/Main/GetSeats4OccasionTimeID/:OccasionTimeID', async (req, res) =>
         await resultSet.close();
         res.send(output);
 
-    } catch (err) {
-
-        res.set('Content-Type', 'application/json');
-        res.status(500).send(JSON.stringify({
-            status: 500,
-            message: "error fetching data from DB",
-            detailedMessage: err.message
-
-        }));
+    } catch (ex) {
+        next(ex);
     } finally {
         if (connection) {
             try {
@@ -218,7 +202,7 @@ app.get('/api/Main/GetSeats4OccasionTimeID/:OccasionTimeID', async (req, res) =>
 
 // @URI: POST => /PostReserveHeader
 // @desc: Registering reservation info
-app.post('/api/Main/PostReserveHeader', async (req, res) => {
+app.post('/api/Main/PostReserveHeader', async (req, res, next) => {
 
     let connection;
 
@@ -233,7 +217,7 @@ app.post('/api/Main/PostReserveHeader', async (req, res) => {
         console.log(reserveDto);
 
         // new GUID
-        const Seq = uuidv1().replace('-', '').replace('/', '');
+        const Seq = uuidv1().replace(/-/g, '');
         console.log("GUID = " + Seq);
 
 
@@ -265,8 +249,8 @@ app.post('/api/Main/PostReserveHeader', async (req, res) => {
         };
 
 
-        //const result = await connection.executeMany(sql, binds, options);
-        //console.log("Result is:", result);
+        const result = await connection.executeMany(sql, binds, options);
+        console.log("Result is:", result);
 
 
         const query = `BEGIN SP_CREATE_RESERVATION(
@@ -305,32 +289,32 @@ app.post('/api/Main/PostReserveHeader', async (req, res) => {
         console.log(_.toString(m.format('jYYYY/jMM/jDD')));
         console.log(_.toString(m.format('LTS')));
 
-        // const resultSP = await connection.execute(query,
-        //     {
-        //         OCCASION_TIME_ID: { val: reserveDto.reservation.OccasionTimeID, type: oracledb.NUMBER, dir: oracledb.BIND_IN },
-        //         RESERVE_CODE: { val: pursuitCode, type: oracledb.STRING, dir: oracledb.BIND_IN },
-        //         RESERVE_DATE: { val: _.toString(m.format('jYYYY/jMM/jDD')), type: oracledb.STRING, dir: oracledb.BIND_IN },
-        //         RESERVE_TIME: { val: _.toString(m.format('LTS')), type: oracledb.STRING, dir: oracledb.BIND_IN },
-        //         FAMILY_NAME: { val: reserveDto.reservation.NameFamily, type: oracledb.STRING, dir: oracledb.BIND_IN },
-        //         MELICODE: { val: reserveDto.reservation.NationalCode, type: oracledb.STRING, dir: oracledb.BIND_IN },
-        //         MOBILE: { val: reserveDto.reservation.MobileNumber, type: oracledb.STRING, dir: oracledb.BIND_IN },
-        //         ADDRESS: { val: reserveDto.reservation.Address, type: oracledb.STRING, dir: oracledb.BIND_IN },
-        //         PAY_MAB: { val: reserveDto.reservation.SumPrice, type: oracledb.NUMBER, dir: oracledb.BIND_IN },
-        //         PAY_CODE: { val: '0', type: oracledb.STRING, dir: oracledb.BIND_IN },
-        //         SEQ_: { val: Seq, type: oracledb.STRING, dir: oracledb.BIND_IN },
-        //         ERROR_: { type: oracledb.STRING, dir: oracledb.BIND_OUT },
-        //         Result: { type: oracledb.STRING, dir: oracledb.BIND_OUT },
-        //     });
+        const resultSP = await connection.execute(query,
+            {
+                OCCASION_TIME_ID: { val: reserveDto.reservation.OccasionTimeID, type: oracledb.NUMBER, dir: oracledb.BIND_IN },
+                RESERVE_CODE: { val: pursuitCode, type: oracledb.STRING, dir: oracledb.BIND_IN },
+                RESERVE_DATE: { val: _.toString(m.format('jYYYY/jMM/jDD')), type: oracledb.STRING, dir: oracledb.BIND_IN },
+                RESERVE_TIME: { val: _.toString(m.format('LTS')), type: oracledb.STRING, dir: oracledb.BIND_IN },
+                FAMILY_NAME: { val: reserveDto.reservation.NameFamily, type: oracledb.STRING, dir: oracledb.BIND_IN },
+                MELICODE: { val: reserveDto.reservation.NationalCode, type: oracledb.STRING, dir: oracledb.BIND_IN },
+                MOBILE: { val: reserveDto.reservation.MobileNumber, type: oracledb.STRING, dir: oracledb.BIND_IN },
+                ADDRESS: { val: reserveDto.reservation.Address, type: oracledb.STRING, dir: oracledb.BIND_IN },
+                PAY_MAB: { val: reserveDto.reservation.SumPrice, type: oracledb.NUMBER, dir: oracledb.BIND_IN },
+                PAY_CODE: { val: '0', type: oracledb.STRING, dir: oracledb.BIND_IN },
+                SEQ_: { val: Seq, type: oracledb.STRING, dir: oracledb.BIND_IN },
+                ERROR_: { type: oracledb.STRING, dir: oracledb.BIND_OUT },
+                Result_: { type: oracledb.STRING, dir: oracledb.BIND_OUT },
+            });
 
 
 
-        //console.log(resultSP);
+        console.log(resultSP);
 
 
 
-        // if (_.toString(resultSP.value) === '-1') {
-        //     res.status(500).send('Transaction Failed, Please try again');
-        // }
+        if (_.toString(resultSP.value) === '-1') {
+            res.status(500).send('Transaction Failed, Please try again');
+        }
 
 
         // Send SMS
@@ -342,13 +326,8 @@ app.post('/api/Main/PostReserveHeader', async (req, res) => {
         });
 
     } catch (err) {
-
-        res.set('Content-Type', 'application/json');
-        res.status(500).send(JSON.stringify({
-            status: 500,
-            message: "error fetching data from DB",
-            detailedMessage: err.message
-        }));
+console.log(err);
+        next(err);
     } finally {
         if (connection) {
             try {
@@ -364,7 +343,7 @@ app.post('/api/Main/PostReserveHeader', async (req, res) => {
 
 
 
-app.post('/api/Main/UpdateChairState', async (req, res) => {
+app.post('/api/Main/UpdateChairState', async (req, res, next) => {
 
     let connection;
 
@@ -425,12 +404,7 @@ app.post('/api/Main/UpdateChairState', async (req, res) => {
 
     } catch (err) {
 
-        res.set('Content-Type', 'application/json');
-        res.status(500).send(JSON.stringify({
-            status: 500,
-            message: "error fetching data from DB",
-            detailedMessage: err.message
-        }));
+        next(err);
     } finally {
         if (connection) {
             try {
@@ -445,7 +419,7 @@ app.post('/api/Main/UpdateChairState', async (req, res) => {
 
 
 
-app.post('/api/Main/ReleaseSelectedSeats4ConnID', async (req, res) => {
+app.post('/api/Main/ReleaseSelectedSeats4ConnID', async (req, res, next) => {
 
     let connection;
 
@@ -500,13 +474,7 @@ app.post('/api/Main/ReleaseSelectedSeats4ConnID', async (req, res) => {
         res.send(listSeats.rows);
 
     } catch (err) {
-
-        res.set('Content-Type', 'application/json');
-        res.status(500).send(JSON.stringify({
-            status: 500,
-            message: "error fetching data from DB",
-            detailedMessage: err.message
-        }));
+        next(err);
     } finally {
         if (connection) {
             try {
@@ -521,7 +489,7 @@ app.post('/api/Main/ReleaseSelectedSeats4ConnID', async (req, res) => {
 
 
 
-app.get('/api/Main/ReserveInfo/:pursuitCode', async (req, res) => {
+app.get('/api/Main/ReserveInfo/:pursuitCode', async (req, res, next) => {
 
     let connection;
 
@@ -561,13 +529,7 @@ app.get('/api/Main/ReserveInfo/:pursuitCode', async (req, res) => {
         res.send(result);
 
     } catch (err) {
-
-        res.set('Content-Type', 'application/json');
-        res.status(500).send(JSON.stringify({
-            status: 500,
-            message: "error fetching data from DB",
-            detailedMessage: err.message
-        }));
+        next(err);
     } finally {
         if (connection) {
             try {
@@ -813,4 +775,10 @@ app.get('/test9', async (req, res) => {
 });
 
 
-app.listen(PORT, () => { console.log(`Server started on port ${PORT}`); });
+
+
+app.use(errorMiddleware);
+
+const PORT = process.env.PORT || 5000;
+const server = app.listen(PORT, () => { console.log(`Server listening on port ${PORT} ...`); });
+module.exports = server;
