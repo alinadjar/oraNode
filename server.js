@@ -4,8 +4,11 @@ const bodyParser = require('body-parser');
 const moment = require('jalali-moment');
 const { GeneratePursuitCode } = require('./helper/PersuitCodeGenerator');
 const { getSeatClass } = require('./models/Kind_Seatreserve');
-const Kind_SeatReserve = require('./models/Kind_Seatreserve');
+const { Kind_SeatReserve } = require('./models/Kind_Seatreserve');
+const Reserve_Header_Info = require('./models/Reserve_Header_Info');
+const Reserve_Detail_Info = require('./models/Reserve_Detail_Info');
 const ReserveDto = require('./models/ReserveDto');
+const SeatState_Dto = require('./models/SeatState_Dto');
 const sworm = require('sworm');
 const express = require('express');
 const app = express();
@@ -23,6 +26,7 @@ app.use(bodyParser.json())
 
 
 const oracledb = require('oracledb');
+//oracledb.autoCommit = true;
 
 
 const dbConfig = {
@@ -126,6 +130,8 @@ app.get('/api/Main/GetSeats4OccasionTimeID/:OccasionTimeID', async (req, res) =>
             });
 
         console.log(result);
+        console.log('resutSet-------------------------');
+        console.log(result.outBinds);
         console.log("Cursor metadata:");
         console.log(result.outBinds.cursor.metaData);
 
@@ -277,7 +283,7 @@ app.post('/api/Main/PostReserveHeader', async (req, res) => {
             :SEQ_,
             :ERROR_,
             :Result_
-        ) END;`;
+        ); END;`;
 
 
         //const headerObj = {};
@@ -358,6 +364,250 @@ app.post('/api/Main/PostReserveHeader', async (req, res) => {
 
 
 
+app.post('/api/Main/UpdateChairState', async (req, res) => {
+
+    let connection;
+
+
+    // validate (req.body)
+
+    try {
+        //oracledb.autoCommit = true;
+        connection = await oracledb.getConnection(dbConfig);
+
+
+        const query = "UPDATE OCCASION_SEAT  SET OCSE09=:kindReserveCode, OCSE11=:connID WHERE OCSE01=:seatID";
+
+
+        // const seatState_Dto = new SeatState_Dto(_.pick(req.body, ['kindReserveCode', 'ConnectionID', 'seatID']));
+        // console.log(seatState_Dto);
+        // console.log({
+        //     kindReserveCode: seatState_Dto.kindReserveCode,
+        //     connID: seatState_Dto.ConnectionID,
+        //     seatID: seatState_Dto.seatID
+        // });
+        //console.log(query);
+
+
+
+        // const binds = [
+        //     { kindReserveCode: 2, connID: '777', seatID: 238 }
+        // ];
+
+        // // bindDefs is optional for IN binds but it is generally recommended.
+        // // Without it the data must be scanned to find sizes and types.
+        // const options = {
+        //     autoCommit: true,
+        //     bindDefs: {
+        //         kindReserveCode: { type: oracledb.NUMBER },
+        //         connID: { type: oracledb.STRING, maxSize: 36 },
+        //         seatID: { type: oracledb.NUMBER}
+        //     }
+        // };
+
+
+
+        console.log(req.body);
+        const result = await connection.execute(
+            query,
+            {
+                kindReserveCode: req.body.kindReserveCode,
+                connID: req.body.ConnectionID,
+                seatID: req.body.seatID
+            },
+            { autoCommit: true });
+
+
+        console.log(result);
+
+        result.rowsAffected > 0 ? res.send(result) : res.status(400).send({ 'result': result, 'message': 'update failed, no rows affcted!' });
+
+
+    } catch (err) {
+
+        res.set('Content-Type', 'application/json');
+        res.status(500).send(JSON.stringify({
+            status: 500,
+            message: "error fetching data from DB",
+            detailedMessage: err.message
+        }));
+    } finally {
+        if (connection) {
+            try {
+                await connection.close();
+            } catch (err) {
+                console.error(err);
+                res.status(500).send(err);
+            }
+        }
+    }
+});
+
+
+
+app.post('/api/Main/ReleaseSelectedSeats4ConnID', async (req, res) => {
+
+    let connection;
+
+
+    try {
+
+        connection = await oracledb.getConnection(dbConfig);
+
+        const connID = req.body.connID;
+        // valid connID ?
+        console.log(connID);
+
+
+        const listSeats = await connection.execute("select OCSE01, OCSE09, OCSE11 from OCCASION_SEAT where OCSE11 = '" + connID + "'");
+        //console.log(listSeats.rows);
+
+        const updateQuery = "UPDATE OCCASION_SEAT\
+                                SET OCSE09 = :kindReserveCode,\
+                                    OCSE11 = :connectionID\
+                                WHERE OCSE01 = :seatID";
+
+
+        listSeats.rows.forEach(async rec => {
+            const key = rec[0];
+            const stateReserve = rec[1];
+            console.log(key + '----' + stateReserve);
+
+            //console.log(Kind_SeatReserve.Selected);
+
+            if (stateReserve === Kind_SeatReserve.Selected) { // seat is yellow
+                console.log({
+                    kindReserveCode: Kind_SeatReserve.Purchasable,
+                    connectionID: '',
+                    seatID: key
+                });
+
+                const r = await connection.execute(
+                    updateQuery,
+                    {
+                        kindReserveCode: Kind_SeatReserve.Purchasable,
+                        connectionID: '',
+                        seatID: key
+                    }, { autoCommit: true });
+
+                console.log(r);
+
+
+            }// end if
+        });// end loop
+
+
+        res.send(listSeats.rows);
+
+    } catch (err) {
+
+        res.set('Content-Type', 'application/json');
+        res.status(500).send(JSON.stringify({
+            status: 500,
+            message: "error fetching data from DB",
+            detailedMessage: err.message
+        }));
+    } finally {
+        if (connection) {
+            try {
+                await connection.close();
+            } catch (err) {
+                console.error(err);
+                res.status(500).send(err);
+            }
+        }
+    }
+});
+
+
+
+app.get('/api/Main/ReserveInfo/:pursuitCode', async (req, res) => {
+
+    let connection;
+
+    try {
+        connection = await oracledb.getConnection(dbConfig);
+
+        const pursuitCode = _.toString(req.params.pursuitCode).trim();
+        console.log('pusuit = ' + pursuitCode);
+
+        let _header = null, _detail = [];
+
+        const queryHeader = "SELECT * FROM V_RESERVATION WHERE RESERVE_CODE='" + pursuitCode + "'";
+        const queryDetail = "SELECT RESERVE_ID,RESERVE_CODE\
+                                    ,SALON_CODE,SALON_NAME,ZONE_CODE,ZONE_NAME\
+                                    ,RADIF_SHO,SEAT_SHO,NERKH\
+                                    ,RESERVE_INFO_ID FROM  V_RESERVATION_INFO WHERE RESERVE_CODE='"+ pursuitCode + "'";
+        //console.log(queryHeader);
+
+        const headerRow = await connection.execute(queryHeader);
+        const detailRows = await connection.execute(queryDetail);
+
+        console.log(headerRow);
+        //console.log(detailRows);
+
+        _header = new Reserve_Header_Info(headerRow.rows[0]);
+        detailRows.rows.forEach(row => {
+            _detail.push(new Reserve_Detail_Info(row));
+        });
+
+
+        let result = {
+            "_header": _header,
+            "_detail": _detail
+        };
+
+
+        res.send(result);
+
+    } catch (err) {
+
+        res.set('Content-Type', 'application/json');
+        res.status(500).send(JSON.stringify({
+            status: 500,
+            message: "error fetching data from DB",
+            detailedMessage: err.message
+        }));
+    } finally {
+        if (connection) {
+            try {
+                await connection.close();
+            } catch (err) {
+                console.error(err);
+                res.status(500).send(err);
+            }
+        }
+    }
+
+});
+
+
+
+
+// const query = `BEGIN SP_SHOW_RESERVATION(
+//     :RESERVE_CODE,
+//     :Result_H,
+//     :Result_D            
+//     ); 
+// END; `;
+
+// const result = await connection.execute(
+//     query,
+//     {
+//         RESERVE_CODE: req.params.pursuitCode, //{val: pursuitCode, type: oracledb.STRING, dir: oracledb.BIND_IN },
+//         Result_H: { type: oracledb.CURSOR, dir: oracledb.BIND_OUT },
+//         Result_D: { type: oracledb.CURSOR, dir: oracledb.BIND_OUT }
+//     });
+
+
+// const resultSet = result.outBinds;
+// console.log(resultSet);
+
+// let rows = await resultSet.cursor.getRows(5); 
+// console.log(rows);
+
+
+
 // app.get('/test', (req, res) => {
 
 //     const querySQL = `BEGIN SP_SHOW_OCCASION( ocasion_id => :ocasion_id, result_ => :result_ ); END;`;
@@ -423,6 +673,7 @@ app.get('/test2', (req, res) => {
 
     //let db = sworm.db('oracle://RSVP_USER:123456@192.168.87.5:1521/tabarokora&maxRows=100000&pool=true');
     let db = sworm.db('oracle://RSVP_USER:123456@192.168.87.5:1521/tabarokora');
+    console.log(db);
 
     db.query('select * from V_OCCASION_TIME where OCASION_TIME = @occID', { occID: 2 })
         .then(function (results) {
@@ -501,6 +752,64 @@ app.get('/test6', async (req, res) => {
         }
     }
 
+});
+
+
+app.get('/test8', (req, res) => {
+
+    const db = sworm.db('oracle://RSVP_USER:123456@192.168.87.5:1521/tabarokora');
+    console.log(db);
+
+    const query = 'UPDATE OCCASION_SEAT  SET OCSE09 = @kindReserveCode, OCSE11 = @connID  WHERE OCSE01 = @seatID';
+
+    db.query(query, { kindReserveCode: 2, connID: '777', seatID: 238 })
+        .then(result => {
+            console.log(result);
+            res.send('OK');
+        })
+        .catch(err => {
+            console.log(err)
+            res.send('Catch NOK');
+        });
+
+
+    res.send('NOK');
+
+});
+
+
+app.get('/test9', async (req, res) => {
+    try {
+        const db = sworm.db('oracle://RSVP_USER:123456@192.168.87.5:1521/tabarokora');
+        var occSeat = db.model({ table: 'OCCASION_SEAT' });
+
+        var bob = occSeat({ OCSE01: 238, OCSE09: 2, OCSE11: '7779' });
+        console.log(bob);
+        await bob.upsert();
+        res.send(bob);
+
+        // const result = await bob.save();
+
+        // db.query('UPDATE OCCASION_SEAT  SET OCSE09 = @kindReserveCode, OCSE11 = @connID  WHERE OCSE01 = @seatID',
+        //     {kindReserveCode: 2, connID: '7779', seatID: 238}).then(function (results) {
+        //     console.log(results);
+
+        //     /*
+        //        [
+        //          {id: 2, name: 'Bob'}
+        //        ]
+        //      */
+
+        //     res.send(results);
+        //   }); 
+
+
+
+
+    } catch (ex) {
+        console.log(ex);
+        res.status.send(ex);
+    }
 });
 
 
