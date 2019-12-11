@@ -3,7 +3,8 @@ const config = require('config');
 const uuidv1 = require('uuid/v1');
 const bodyParser = require('body-parser');
 const moment = require('jalali-moment');
-const { GeneratePursuitCode } = require('./helper/PersuitCodeGenerator');
+//const { GeneratePursuitCode } = require('./helper/PersuitCodeGenerator');
+const { ShortPursuitCode } = require('./helper/PersuitCodeGenerator');
 const { getSeatClass } = require('./models/Kind_Seatreserve');
 const { Kind_SeatReserve } = require('./models/Kind_Seatreserve');
 const Reserve_Header_Info = require('./models/Reserve_Header_Info');
@@ -276,7 +277,7 @@ app.post('/api/Main/PostReserveHeader', async (req, res, next) => {
         //const reservationHeader_Dto = new ReservationHeader_Dto(headerObj);
 
 
-        const pursuitCode = GeneratePursuitCode();
+        const pursuitCode = ShortPursuitCode();
         // const currentDate = moment().format('l');    // 12/5/2019
         // const currentDate = moment().format('L');    // 12/05/2019
         // const currentTime = moment().format('LTS');  // 10:37:02 AM
@@ -306,7 +307,7 @@ app.post('/api/Main/PostReserveHeader', async (req, res, next) => {
                 SEQ_: { val: Seq, type: oracledb.STRING, dir: oracledb.BIND_IN },
                 ERROR_: { type: oracledb.STRING, dir: oracledb.BIND_OUT },
                 Result_: { type: oracledb.STRING, dir: oracledb.BIND_OUT },
-            });
+            }, {autoCommit: true});
 
 
 
@@ -329,7 +330,10 @@ app.post('/api/Main/PostReserveHeader', async (req, res, next) => {
         " تا 30 دقیقه دیگر، رزرو موقت شما باطل خواهد شد.";
 
         console.log(JSON.stringify({"phone":reserveDto.reservation.MobileNumber, "txt":smsText}));
-        const sms_status = sendSMS(reserveDto.reservation.MobileNumber, smsText);
+        //const sms_status = 
+        sendSMS(reserveDto.reservation.MobileNumber, smsText)
+            .then(sms_status => console.log(sms_status))
+            .catch(err => console.log(err));
         //sms_status === -1 ? console.log('SMS failed') : console.log('SMS status= '+sms_status);
 
 
