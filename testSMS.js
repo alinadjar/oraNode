@@ -76,19 +76,44 @@
 
 
 
-const axios = require('axios');
-const config = require('config');
 
-console.log(config.get('sms.smsUsername'));
 
-axios.post('http://sms.3300.ir/api/wsSend.ashx', {
-	"username": config.get('sms.smsUsername'),
-	"password": config.get('sms.smsPassword'),
-	"mobile": "09156187830",
-	"message":"This is a test via NodeJs!",
-	"line": config.get('sms.lineNumber'),
-	"type":0,
-	"template":0
-})
-    .then(response => console.log(response))
-    .catch(err => console.log(err));
+
+
+//------------------------------------  Nice Code  ----------------------------------------------
+
+// const axios = require('axios');
+// const config = require('config');
+
+// console.log(config.get('sms.smsUsername'));
+
+// axios.post('http://sms.3300.ir/api/wsSend.ashx', {
+// 	"username": config.get('sms.username'),
+// 	"password": config.get('sms.password'),
+// 	"mobile": "09156187830",
+// 	"message":"through NodeJs!, testing Status code",
+// 	"line": config.get('sms.lineNumber'),
+// 	"type":0,
+// 	"template":0
+// })
+//     .then(response => {
+// 		if(response.status === 200){
+// 			console.log('SMS sent Successfully.');
+// 			console.log(response.status);
+// 			console.log(response);
+// 		}
+// 		else 
+// 		console.log('SMS failed. ==> status: '+ response.status);
+// 	})
+// 	.catch(err => console.log(err));
+	
+
+
+async function run() {
+	const sendSMS = require('./services/sendSMS');
+
+	const x = await sendSMS("09156187830", 'async/await via NodeJs');
+	console.log(x);
+}
+
+run();

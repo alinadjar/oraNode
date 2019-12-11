@@ -11,9 +11,11 @@ const Reserve_Detail_Info = require('./models/Reserve_Detail_Info');
 const ReserveDto = require('./models/ReserveDto');
 const SeatState_Dto = require('./models/SeatState_Dto');
 const errorMiddleware = require('./middleware/errorMiddleware');
+const axios = require('axios');
 const oracledb = require('oracledb');
 //oracledb.autoCommit = true;
 const sworm = require('sworm');
+const sendSMS = require('./services/sendSMS');
 const express = require('express');
 const app = express();
 
@@ -313,16 +315,28 @@ app.post('/api/Main/PostReserveHeader', async (req, res, next) => {
 
 
         if (_.toString(resultSP.value) === '-1') {
-            res.status(500).send('Transaction Failed, Please try again');
+            res.status(500).send('Transaction Failed: , Please try again');
         }
 
 
         // Send SMS
 
+        const smsText = "سرور گرامی آقا/خانم:" + reserveDto.reservation.NameFamily + " \
+        رزرو موقت شما با شماره پیگیری " + "\
+        " + pursuitCode + "\
+        با موفقیت ثبت شد." + "\
+        احتراما در صورت عدم پرداخت و ارسال فیش واریزی به شماره تلگرام 09011012121" +
+        " تا 30 دقیقه دیگر، رزرو موقت شما باطل خواهد شد.";
+
+        console.log(JSON.stringify({"phone":reserveDto.reservation.MobileNumber, "txt":smsText}));
+        const sms_status = sendSMS(reserveDto.reservation.MobileNumber, smsText);
+        //sms_status === -1 ? console.log('SMS failed') : console.log('SMS status= '+sms_status);
+
 
         res.send({
             message: 'Transaction successful',
-            pursuitNumber: pursuitCode
+            pursuitNumber: pursuitCode,
+            sp: resultSP
         });
 
     } catch (err) {
@@ -781,4 +795,5 @@ app.use(errorMiddleware);
 
 const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, () => { console.log(`Server listening on port ${PORT} ...`); });
+
 module.exports = server;
